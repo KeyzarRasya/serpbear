@@ -14,10 +14,11 @@ type DomainHeaderProps = {
    scFilter?: string
    setScFilter?: Function
    showIdeaUpdateModal?:Function
+   showStartAuditing?:Function
 }
 
 const DomainHeader = (
-   { domain, showAddModal, showSettingsModal, exportCsv, domains, scFilter = 'thirtyDays', setScFilter, showIdeaUpdateModal }: DomainHeaderProps,
+   { domain, showAddModal, showSettingsModal, exportCsv, domains, scFilter = 'thirtyDays', setScFilter, showIdeaUpdateModal, showStartAuditing }: DomainHeaderProps,
 ) => {
    const router = useRouter();
    const [showOptions, setShowOptions] = useState<boolean>(false);
@@ -26,6 +27,8 @@ const DomainHeader = (
    const isConsole = router.pathname === '/domain/console/[slug]';
    const isInsight = router.pathname === '/domain/insight/[slug]';
    const isIdeas = router.pathname === '/domain/ideas/[slug]';
+   const isAuditor = router.pathname === '/domain/auditor/[slug]';
+   const isMonthlyReport = router.pathname === '/domain/monthly-report/[slug]';
 
    const daysName = (dayKey:string) => dayKey.replace('three', '3').replace('seven', '7').replace('thirty', '30').replace('Days', ' Days');
    const buttonStyle = 'leading-6 inline-block px-2 py-2 text-gray-500 hover:text-gray-700';
@@ -54,7 +57,7 @@ const DomainHeader = (
             <li className={`${tabStyle} ${router.pathname === '/domain/[slug]' ? 'bg-white border border-b-0 font-semibold' : ''}`}>
                <Link href={`/domain/${domain.slug}`} passHref={true}>
                   <a className='px-4 py-2 inline-block'><Icon type="tracking" color='#999' classes='hidden lg:inline-block' />
-                     <span className='text-xs lg:text-sm lg:ml-2'>Tracking</span>
+                     <span className='text-xs lg:text-sm lg:ml-2'>Ranking</span>
                   </a>
                </Link>
             </li>
@@ -88,6 +91,20 @@ const DomainHeader = (
                   </a>
                </Link>
             </li>
+            <li className={`${tabStyle} ${router.pathname === '/domain/auditor/[slug]' ? 'bg-white border border-b-0 font-semibold' : ''}`}>
+               <Link href={`/domain/auditor/${domain.slug}`} passHref={true}>
+                  <a className='px-4 py-2 inline-block'><Icon type="settings" size={13} classes='hidden lg:inline-block' />
+                     <span className='text-xs lg:text-sm lg:ml-2'>Site Auditor</span>
+                  </a>
+               </Link>
+            </li>
+            <li className={`${tabStyle} ${router.pathname === '/domain/monthly-report/[slug]' ? 'bg-white border border-b-0 font-semibold' : ''}`}>
+               <Link href={`/domain/monthly-report/${domain.slug}`} passHref={true}>
+                  <a className='px-4 py-2 inline-block'><Icon type="monthly-report" size={13} classes='hidden lg:inline-block' />
+                     <span className='text-xs lg:text-sm lg:ml-2'>Monthly Report</span>
+                  </a>
+               </Link>
+            </li>
          </ul>
          <div className={'flex mb-0 lg:mb-1 lg:mt-3'}>
             {!isInsight && <button className={`${buttonStyle} lg:hidden`} onClick={() => setShowOptions(!showOptions)}>
@@ -107,7 +124,7 @@ const DomainHeader = (
                      <Icon type='download' size={20} /><i className={`${buttonLabelStyle}`}>Export as csv</i>
                   </button>
                )}
-               {!isConsole && !isInsight && !isIdeas && (
+               {!isConsole && !isInsight && !isIdeas && !isAuditor && !isMonthlyReport && (
                   <button
                   className={`domheader_action_button relative ${buttonStyle} lg:ml-3`}
                   aria-pressed="false"
@@ -123,7 +140,7 @@ const DomainHeader = (
                   <i className={`${buttonLabelStyle}`}>Domain Settings</i>
                </button>
             </div>
-            {!isConsole && !isInsight && !isIdeas && (
+            {!isConsole && !isInsight && !isIdeas && !isAuditor && !isMonthlyReport && (
                <button
                data-testid="add_keyword"
                className={'ml-2 inline-block text-blue-700 font-bold text-sm lg:px-4 lg:py-2'}
@@ -131,6 +148,18 @@ const DomainHeader = (
                   <span
                   className='text-center leading-4 mr-2 inline-block rounded-full w-7 h-7 pt-1 bg-blue-700 text-white font-bold text-lg'>+</span>
                   <i className=' not-italic hidden lg:inline-block'>Add Keyword</i>
+               </button>
+            )}
+            {isAuditor && (
+               <button
+               data-testid="start_auditing"
+               className={'ml-2 inline-block text-blue-700 font-bold text-sm lg:px-4 lg:py-2'}
+               onClick={() => showStartAuditing && showStartAuditing()}>
+                  <span
+                  className='text-center leading-4 mr-2 inline-block rounded-full w-7 h-7 pt-1 bg-blue-700 text-white font-bold text-lg'>
+                     <Icon type='reload' size={12} />
+                  </span>
+                  <i className=' not-italic hidden lg:inline-block'>Start Auditing</i>
                </button>
             )}
             {isConsole && (
@@ -144,7 +173,7 @@ const DomainHeader = (
                         {['threeDays', 'sevenDays', 'thirtyDays'].map((itemKey) => {
                            return <button
                                     key={itemKey}
-                                    className={`${scDataFilterStlye} ${scFilter === itemKey ? ' bg-indigo-100 text-indigo-600' : ''}`}
+                                    className={`${scDataFilterStlye} ${scFilter === itemKey ? 'bg-indigo-100 text-indigo-600' : ''}`}
                                     onClick={() => { setShowSCDates(false); if (setScFilter) setScFilter(itemKey); }}
                                     >Last {daysName(itemKey)}
                                  </button>;

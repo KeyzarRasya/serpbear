@@ -62,9 +62,17 @@ const fetchSearchConsoleData = async (domain:DomainType, days:number, type?:stri
       };
    }
 
-      const siteUrl = domainSettings.property_type === 'url' && domainSettings.url ? domainSettings.url : `sc-domain:${domainName}`;
+      const siteUrl = domainSettings.property_type === 'url'
+            ? domainSettings.url
+            : `https://${domainName}/`;
+      console.log(siteUrl);
+
+
+      // const siteUrl = domainSettings.property_type === 'url' && domainSettings.url ? domainSettings.url : `sc-domain:${domainName}`;
       const res = client.searchanalytics.query({ siteUrl, requestBody });
       const resData:any = (await res).data;
+      console.log('RES');
+      console.log(resData);
       let finalRows = resData.rows ? resData.rows.map((item:SearchAnalyticsRawItem) => parseSearchConsoleItem(item, domainName)) : [];
 
       if (type === 'stat' && resData.rows && resData.rows.length > 0) {
@@ -84,6 +92,7 @@ const fetchSearchConsoleData = async (domain:DomainType, days:number, type?:stri
       return finalRows;
    } catch (err:any) {
       const qType = type === 'stats' ? '(stats)' : `(${days}days)`;
+      console.log(err);
       const errorMsg = err?.response?.status && `${err?.response?.statusText}. ${err?.response?.data?.error_description}`;
       console.log(`[ERROR] Search Console API Error for ${domainName} ${qType} : `, errorMsg || err?.code);
       // console.log('SC ERROR :', err);
