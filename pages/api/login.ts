@@ -20,6 +20,8 @@ const loginUser = async (req: NextApiRequest, res: NextApiResponse<loginResponse
    }
    const userName = process.env.USER_NAME ? process.env.USER_NAME : process.env.USER;
 
+   console.log(userName);
+
    if (req.body.username === userName
       && req.body.password === process.env.PASSWORD && process.env.SECRET) {
       const token = jwt.sign({ user: userName }, process.env.SECRET);
