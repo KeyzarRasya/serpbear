@@ -1,0 +1,23 @@
+version: '3.8'
+services:
+  serpbear:
+    build: .
+    ports:
+      - "3002:3000"
+    depends_on:
+      - db
+    environment:
+      - DATABASE_URL=postgres://user:password@db:5432/serpbear
+      - NEXT_PUBLIC_APP_URL=http://localhost:3000
+  db:
+    image: postgres:15-alpine
+    restart: always
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=serpbear
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
