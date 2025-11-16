@@ -1,7 +1,8 @@
-import { writeFile, readFile } from 'fs/promises';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import Cryptr from 'cryptr';
 import getConfig from 'next/config';
+import db from '../../database/database';
+import Settings from '../../database/models/settings';
 import verifyUser from '../../utils/verifyUser';
 import allScrapers from '../../scrapers/index';
 
@@ -11,6 +12,7 @@ type SettingsGetResponse = {
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+   await db.sync();
    const authorized = verifyUser(req, res);
    if (authorized !== 'authorized') {
       return res.status(401).json({ error: authorized });
@@ -36,10 +38,13 @@ const getSettings = async (req: NextApiRequest, res: NextApiResponse<SettingsGet
 
 const updateSettings = async (req: NextApiRequest, res: NextApiResponse<SettingsGetResponse>) => {
    const { settings } = req.body || {};
-   // console.log('### settings: ', settings);
+   
+   console.log('[DEBUG] Updating settings:', JSON.stringify(settings, null, 2));
+   
    if (!settings) {
-      return res.status(200).json({ error: 'Settings Data not Provided!' });
+      return res.status(400).json({ error: 'Settings Data not Provided!' });
    }
+   
    try {
       const cryptr = new Cryptr(process.env.SECRET as string);
       const scaping_api = settings.scaping_api ? cryptr.encrypt(settings.scaping_api.trim()) : '';
@@ -50,6 +55,7 @@ const updateSettings = async (req: NextApiRequest, res: NextApiResponse<Settings
       const adwords_client_secret = settings.adwords_client_secret ? cryptr.encrypt(settings.adwords_client_secret.trim()) : '';
       const adwords_developer_token = settings.adwords_developer_token ? cryptr.encrypt(settings.adwords_developer_token.trim()) : '';
       const adwords_account_id = settings.adwords_account_id ? cryptr.encrypt(settings.adwords_account_id.trim()) : '';
+      const adwords_refresh_token = settings.adwords_refresh_token ? cryptr.encrypt(settings.adwords_refresh_token.trim()) : '';
 
       const securedSettings = {
          ...settings,
@@ -61,23 +67,29 @@ const updateSettings = async (req: NextApiRequest, res: NextApiResponse<Settings
          adwords_client_secret,
          adwords_developer_token,
          adwords_account_id,
+         adwords_refresh_token,
       };
 
-      await writeFile(`${process.cwd()}/data/settings.json`, JSON.stringify(securedSettings), { encoding: 'utf-8' });
+      console.log('[DEBUG] Upserting settings to database...');
+      await Settings.upsert({ key: 'app_settings', value: JSON.stringify(securedSettings) });
+      console.log('[SUCCESS] Settings updated successfully');
+      
       return res.status(200).json({ settings });
-   } catch (error) {
-      console.log('[ERROR] Updating App Settings. ', error);
-      return res.status(200).json({ error: 'Error Updating Settings!' });
+   } catch (error: any) {
+      console.error('[ERROR] Updating App Settings:', error);
+      console.error('[ERROR] Error details:', error?.message, error?.stack);
+      return res.status(500).json({ error: `Error Updating Settings: ${error?.message || 'Unknown error'}` });
    }
 };
 
-export const getAppSettings = async () : Promise<SettingsType> => {
+export const getAppSettings = async (): Promise<SettingsType> => {
    const screenshotAPIKey = process.env.SCREENSHOT_API || '69408-serpbear';
    try {
-      const settingsRaw = await readFile(`${process.cwd()}/data/settings.json`, { encoding: 'utf-8' });
-      const failedQueueRaw = await readFile(`${process.cwd()}/data/failed_queue.json`, { encoding: 'utf-8' });
-      const failedQueue: string[] = failedQueueRaw ? JSON.parse(failedQueueRaw) : [];
-      const settings: SettingsType = settingsRaw ? JSON.parse(settingsRaw) : {};
+      const settingsRecord = await Settings.findOne({ where: { key: 'app_settings' } });
+      const failedQueueRecord = await Settings.findOne({ where: { key: 'failed_queue' } });
+      
+      const failedQueue: string[] = failedQueueRecord?.value ? JSON.parse(failedQueueRecord.value) : [];
+      const settings: SettingsType = settingsRecord?.value ? JSON.parse(settingsRecord.value) : {};
       let decryptedSettings = settings;
 
       try {
@@ -90,6 +102,7 @@ export const getAppSettings = async () : Promise<SettingsType> => {
          const adwords_client_secret = settings.adwords_client_secret ? cryptr.decrypt(settings.adwords_client_secret) : '';
          const adwords_developer_token = settings.adwords_developer_token ? cryptr.decrypt(settings.adwords_developer_token) : '';
          const adwords_account_id = settings.adwords_account_id ? cryptr.decrypt(settings.adwords_account_id) : '';
+         const adwords_refresh_token = settings.adwords_refresh_token ? cryptr.decrypt(settings.adwords_refresh_token) : '';
 
          decryptedSettings = {
             ...settings,
@@ -106,6 +119,7 @@ export const getAppSettings = async () : Promise<SettingsType> => {
             adwords_client_secret,
             adwords_developer_token,
             adwords_account_id,
+            adwords_refresh_token,
          };
       } catch (error) {
          console.log('Error Decrypting Settings API Keys!');
@@ -135,8 +149,14 @@ export const getAppSettings = async () : Promise<SettingsType> => {
          available_scapers: allScrapers.map((scraper) => ({ label: scraper.name, value: scraper.id })),
          failed_queue: [],
       };
-      await writeFile(`${process.cwd()}/data/settings.json`, JSON.stringify(settings), { encoding: 'utf-8' });
-      await writeFile(`${process.cwd()}/data/failed_queue.json`, JSON.stringify([]), { encoding: 'utf-8' });
+      
+      try {
+         await Settings.upsert({ key: 'app_settings', value: JSON.stringify(settings) });
+         await Settings.upsert({ key: 'failed_queue', value: JSON.stringify([]) });
+      } catch (dbError) {
+         console.log('[ERROR] Creating default settings in DB:', dbError);
+      }
+      
       return { ...settings, ...otherSettings };
    }
 };

@@ -5,7 +5,6 @@ import Keyword from '../../database/models/keyword';
 import { getAppSettings } from './settings';
 import verifyUser from '../../utils/verifyUser';
 import parseKeywords from '../../utils/parseKeywords';
-import { integrateKeywordSCData, readLocalSCData } from '../../utils/searchConsole';
 import refreshAndUpdateKeywords from '../../utils/refresh';
 import { getKeywordsVolume, updateKeywordsVolumeData } from '../../utils/adwords';
 
@@ -43,34 +42,49 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 }
 
 const getKeywords = async (req: NextApiRequest, res: NextApiResponse<KeywordsGetResponse>) => {
-   if (!req.query.domain && typeof req.query.domain !== 'string') {
+   const startTime = Date.now();
+   console.log('[GET /api/keywords] Request received');
+   
+   if (!req.query.domain || typeof req.query.domain !== 'string') {
       return res.status(400).json({ error: 'Domain is Required!' });
    }
-   const settings = await getAppSettings();
+   
    const domain = (req.query.domain as string);
-   const integratedSC = process.env.SEARCH_CONSOLE_PRIVATE_KEY && process.env.SEARCH_CONSOLE_CLIENT_EMAIL;
-   const { search_console_client_email, search_console_private_key } = settings;
-   const domainSCData = integratedSC || (search_console_client_email && search_console_private_key) ? await readLocalSCData(domain) : false;
+   console.log(`[GET /api/keywords] Fetching keywords for domain: ${domain}`);
 
    try {
-      const allKeywords:Keyword[] = await Keyword.findAll({ where: { domain } });
+      const dbStartTime = Date.now();
+      const allKeywords: Keyword[] = await Keyword.findAll({ where: { domain } });
+      const dbDuration = Date.now() - dbStartTime;
+      console.log(`[GET /api/keywords] Database query completed in ${dbDuration}ms (${allKeywords.length} keywords found)`);
+      
+      const parseStartTime = Date.now();
       const keywords: KeywordType[] = parseKeywords(allKeywords.map((e) => e.get({ plain: true })));
+      const parseDuration = Date.now() - parseStartTime;
+      console.log(`[GET /api/keywords] Parsing completed in ${parseDuration}ms`);
+      
+      const processStartTime = Date.now();
       const processedKeywords = keywords.map((keyword) => {
-         const historyArray = Object.keys(keyword.history).map((dateKey:string) => ({
+         const historyArray = Object.keys(keyword.history).map((dateKey: string) => ({
             date: new Date(dateKey).getTime(),
             dateRaw: dateKey,
             position: keyword.history[dateKey],
          }));
          const historySorted = historyArray.sort((a, b) => a.date - b.date);
-         const lastWeekHistory :KeywordHistory = {};
-         historySorted.slice(-7).forEach((x:any) => { lastWeekHistory[x.dateRaw] = x.position; });
-         const keywordWithSlimHistory = { ...keyword, lastResult: [], history: lastWeekHistory };
-         const finalKeyword = domainSCData ? integrateKeywordSCData(keywordWithSlimHistory, domainSCData) : keywordWithSlimHistory;
-         return finalKeyword;
+         const lastWeekHistory: KeywordHistory = {};
+         historySorted.slice(-7).forEach((x: any) => { lastWeekHistory[x.dateRaw] = x.position; });
+         
+         return { ...keyword, lastResult: [], history: lastWeekHistory };
       });
+      const processDuration = Date.now() - processStartTime;
+      console.log(`[GET /api/keywords] Processing completed in ${processDuration}ms`);
+      
+      const totalDuration = Date.now() - startTime;
+      console.log(`[GET /api/keywords] Total request completed in ${totalDuration}ms`);
+      
       return res.status(200).json({ keywords: processedKeywords });
    } catch (error) {
-      console.log('[ERROR] Getting Domain Keywords for ', domain, error);
+      console.error('[ERROR] Getting Domain Keywords for', domain, error);
       return res.status(400).json({ error: 'Error Loading Keywords for this Domain.' });
    }
 };
@@ -78,12 +92,11 @@ const getKeywords = async (req: NextApiRequest, res: NextApiResponse<KeywordsGet
 const addKeywords = async (req: NextApiRequest, res: NextApiResponse<KeywordsGetResponse>) => {
    const { keywords } = req.body;
    if (keywords && Array.isArray(keywords) && keywords.length > 0) {
-      // const keywordsArray = keywords.replaceAll('\n', ',').split(',').map((item:string) => item.trim());
-      const keywordsToAdd: any = []; // QuickFIX for bug: https://github.com/sequelize/sequelize-typescript/issues/936
+      const keywordsToAdd: any = [];
 
       keywords.forEach((kwrd: KeywordAddPayload) => {
          const { keyword, device, country, domain, tags, city } = kwrd;
-         const tagsArray = tags ? tags.split(',').map((item:string) => item.trim()) : [];
+         const tagsArray = tags ? tags.split(',').map((item: string) => item.trim()) : [];
          const newKeyword = {
             keyword,
             device,
@@ -103,15 +116,13 @@ const addKeywords = async (req: NextApiRequest, res: NextApiResponse<KeywordsGet
       });
 
       try {
-         const newKeywords:Keyword[] = await Keyword.bulkCreate(keywordsToAdd);
+         const newKeywords: Keyword[] = await Keyword.bulkCreate(keywordsToAdd);
          const formattedkeywords = newKeywords.map((el) => el.get({ plain: true }));
          const keywordsParsed: KeywordType[] = parseKeywords(formattedkeywords);
 
-         // Queue the SERP Scraping Process
          const settings = await getAppSettings();
          refreshAndUpdateKeywords(newKeywords, settings);
 
-         // Update the Keyword Volume
          const { adwords_account_id, adwords_client_id, adwords_client_secret, adwords_developer_token } = settings;
          if (adwords_account_id && adwords_client_id && adwords_client_secret && adwords_developer_token) {
             const keywordsVolumeData = await getKeywordsVolume(keywordsParsed);
@@ -131,58 +142,35 @@ const addKeywords = async (req: NextApiRequest, res: NextApiResponse<KeywordsGet
 };
 
 const deleteKeywords = async (req: NextApiRequest, res: NextApiResponse<KeywordsDeleteRes>) => {
-   if (!req.query.id && typeof req.query.id !== 'string') {
+   if (!req.query.id || typeof req.query.id !== 'string') {
       return res.status(400).json({ error: 'keyword ID is Required!' });
    }
-   console.log('req.query.id: ', req.query.id);
-
+   const keywordIDS: number[] = req.query.id.split(',').map((id: string) => parseInt(id, 10));
    try {
-      const keywordsToRemove = (req.query.id as string).split(',').map((item) => parseInt(item, 10));
-      const removeQuery = { where: { ID: { [Op.in]: keywordsToRemove } } };
-      const removedKeywordCount: number = await Keyword.destroy(removeQuery);
-      return res.status(200).json({ keywordsRemoved: removedKeywordCount });
+      const removed: number = await Keyword.destroy({ where: { ID: { [Op.in]: keywordIDS } } });
+      return res.status(200).json({ keywordsRemoved: removed });
    } catch (error) {
-      console.log('[ERROR] Removing Keyword. ', error);
-      return res.status(400).json({ error: 'Could Not Remove Keyword!' });
+      console.log('[ERROR] Removing Keywords: ', req.query.id, error);
+      return res.status(400).json({ error: 'Error Removing Keywords!' });
    }
 };
 
-const updateKeywords = async (req: NextApiRequest, res: NextApiResponse<KeywordsGetResponse>) => {
-   if (!req.query.id && typeof req.query.id !== 'string') {
-      return res.status(400).json({ error: 'keyword ID is Required!' });
+const updateKeywords = async (req: NextApiRequest, res: NextApiResponse) => {
+   const { keywords } = req.body;
+   if (!keywords || !Array.isArray(keywords)) {
+      return res.status(400).json({ error: 'Keywords Data is Required!' });
    }
-   if (req.body.sticky === undefined && !req.body.tags === undefined) {
-      return res.status(400).json({ error: 'keyword Payload Missing!' });
-   }
-   const keywordIDs = (req.query.id as string).split(',').map((item) => parseInt(item, 10));
-   const { sticky, tags } = req.body;
-
    try {
-      let keywords: KeywordType[] = [];
-      if (sticky !== undefined) {
-         await Keyword.update({ sticky }, { where: { ID: { [Op.in]: keywordIDs } } });
-         const updateQuery = { where: { ID: { [Op.in]: keywordIDs } } };
-         const updatedKeywords:Keyword[] = await Keyword.findAll(updateQuery);
-         const formattedKeywords = updatedKeywords.map((el) => el.get({ plain: true }));
-          keywords = parseKeywords(formattedKeywords);
-         return res.status(200).json({ keywords });
-      }
-      if (tags) {
-         const tagsKeywordIDs = Object.keys(tags);
-         const multipleKeywords = tagsKeywordIDs.length > 1;
-         for (const keywordID of tagsKeywordIDs) {
-            const selectedKeyword = await Keyword.findOne({ where: { ID: keywordID } });
-            const currentTags = selectedKeyword && selectedKeyword.tags ? JSON.parse(selectedKeyword.tags) : [];
-            const mergedTags = Array.from(new Set([...currentTags, ...tags[keywordID]]));
-            if (selectedKeyword) {
-               await selectedKeyword.update({ tags: JSON.stringify(multipleKeywords ? mergedTags : tags[keywordID]) });
-            }
+      for (const keywordData of keywords) {
+         const { ID, ...updateData } = keywordData;
+         if (updateData.tags) {
+            updateData.tags = JSON.stringify(updateData.tags);
          }
-         return res.status(200).json({ keywords });
+         await Keyword.update(updateData, { where: { ID } });
       }
-      return res.status(400).json({ error: 'Invalid Payload!' });
+      return res.status(200).json({ success: true });
    } catch (error) {
-      console.log('[ERROR] Updating Keyword. ', error);
-      return res.status(200).json({ error: 'Error Updating keywords!' });
+      console.log('[ERROR] Updating Keywords: ', error);
+      return res.status(400).json({ error: 'Error Updating Keywords!' });
    }
 };

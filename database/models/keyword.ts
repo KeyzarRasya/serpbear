@@ -28,13 +28,6 @@ class Keyword extends Model {
    @Column({ type: DataType.STRING, allowNull: false, defaultValue: '{}' })
    domain!: string;
 
-   // @ForeignKey(() => Domain)
-   // @Column({ allowNull: false })
-   // domainID!: number;
-
-   // @BelongsTo(() => Domain)
-   // domain!: Domain;
-
    @Column({ type: DataType.STRING, allowNull: true })
    lastUpdated!: string;
 

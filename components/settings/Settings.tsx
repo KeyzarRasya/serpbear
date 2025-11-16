@@ -39,12 +39,13 @@ const Settings = ({ closeSettings }:SettingsProps) => {
    const [currentTab, setCurrentTab] = useState<string>('scraper');
    const [settings, setSettings] = useState<SettingsType>(defaultSettings);
    const [settingsError, setSettingsError] = useState<SettingsError|null>(null);
-   const { mutate: updateMutate, isLoading: isUpdating } = useUpdateSettings(() => console.log(''));
+   const { mutate: updateMutate, isLoading: isUpdating } = useUpdateSettings(() => console.log('Settings Update Success Callback'));
    const { data: appSettings, isLoading } = useFetchSettings();
    useOnKey('Escape', closeSettings);
 
    useEffect(() => {
       if (appSettings && appSettings.settings) {
+         console.log('[Settings Component] Loaded app settings:', appSettings.settings);
          setSettings(appSettings.settings);
       }
    }, [appSettings]);
@@ -56,37 +57,60 @@ const Settings = ({ closeSettings }:SettingsProps) => {
    };
 
    const updateSettings = (key: string, value:string|number|boolean) => {
+      console.log(`[Settings Component] Updating setting: ${key} = ${value}`);
       setSettings({ ...settings, [key]: value });
    };
 
    const performUpdate = () => {
+      console.log('[Settings Component] performUpdate() called');
+      console.log('[Settings Component] Current settings:', settings);
+      
       let error: null|SettingsError = null;
       const { notification_interval, notification_email, notification_email_from, scraper_type, smtp_port, smtp_server, scaping_api } = settings;
-      if (notification_interval !== 'never') {
-         if (!settings.notification_email) {
-            error = { type: 'no_email', msg: 'Insert a Valid Email address' };
-         }
-         if (notification_email && (!smtp_port || !smtp_server || !notification_email_from)) {
-               let type = 'no_smtp_from';
-               if (!smtp_port) { type = 'no_smtp_port'; }
-               if (!smtp_server) { type = 'no_smtp_server'; }
-               error = { type, msg: 'Insert SMTP Server details that will be used to send the emails.' };
+      
+      console.log('[Settings Component] Validating settings...');
+      
+      // Only validate notification settings if user wants notifications
+      if (notification_interval && notification_interval !== 'never') {
+         console.log('[Settings Component] Validating notification settings (interval is not "never")...');
+         if (!notification_email) {
+            console.log('[Settings Component] ERROR: No notification email provided');
+            error = { type: 'no_email', msg: 'Insert a Valid Email address or set Notification Frequency to "Never"' };
+         } else if (!smtp_port || !smtp_server || !notification_email_from) {
+            let type = 'no_smtp_from';
+            if (!smtp_port) { 
+               console.log('[Settings Component] ERROR: No SMTP port');
+               type = 'no_smtp_port'; 
+            }
+            if (!smtp_server) { 
+               console.log('[Settings Component] ERROR: No SMTP server');
+               type = 'no_smtp_server'; 
+            }
+            error = { type, msg: 'Insert SMTP Server details or set Notification Frequency to "Never"' };
          }
       }
 
-      if (scraper_type !== 'proxy' && scraper_type !== 'none' && !scaping_api) {
-         error = { type: 'no_api_key', msg: 'Insert a Valid API Key or Token for the Scraper Service.' };
+      // Only validate scraper API key if a scraper is selected (not proxy or none)
+      if (scraper_type && scraper_type !== 'proxy' && scraper_type !== 'none' && !scaping_api) {
+         console.log('[Settings Component] ERROR: No scraper API key provided');
+         error = { type: 'no_api_key', msg: 'Insert a Valid API Key for the selected Scraper or choose "None" or "Proxy"' };
       }
 
       if (error) {
+         console.log('[Settings Component] Validation failed with error:', error);
          setSettingsError(error);
-         setTimeout(() => { setSettingsError(null); }, 3000);
+         setTimeout(() => { setSettingsError(null); }, 5000);
       } else {
-         // Perform Update
+         console.log('[Settings Component] Validation passed. Calling updateMutate...');
+         console.log('[Settings Component] Settings to update:', JSON.stringify(settings, null, 2));
          updateMutate(settings);
-         // If Scraper is updated, refresh the page.
-         if (appSettings.settings === 'none' && scraper_type !== 'none') {
-            window.location.reload();
+         
+         // Only reload if scraper changed from none to something else
+         if (appSettings?.settings?.scraper_type === 'none' && scraper_type !== 'none') {
+            console.log('[Settings Component] Scraper changed from none, reloading page...');
+            setTimeout(() => {
+               window.location.reload();
+            }, 1000);
          }
       }
    };
@@ -142,10 +166,21 @@ const Settings = ({ closeSettings }:SettingsProps) => {
                   closeSettings={closeSettings}
                    />
                )}
+               {settingsError && (
+                  <div className='mx-3 mt-2 p-3 text-sm bg-red-50 text-red-700 rounded'>
+                     {settingsError.msg}
+                  </div>
+               )}
                <div className=' border-t-[1px] border-gray-200 p-2 px-3'>
                   <button
-                  onClick={() => performUpdate()}
-                  className=' py-3 px-5 w-full rounded cursor-pointer bg-blue-700 text-white font-semibold text-sm'>
+                  onClick={(e) => {
+                     console.log('[Settings Component] Update Settings button clicked');
+                     e.preventDefault();
+                     e.stopPropagation();
+                     performUpdate();
+                  }}
+                  disabled={isUpdating}
+                  className={`py-3 px-5 w-full rounded bg-blue-700 text-white font-semibold text-sm ${isUpdating ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
                   {isUpdating && <Icon type="loading" size={14} />} Update Settings
                   </button>
                </div>

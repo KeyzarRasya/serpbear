@@ -61,9 +61,10 @@ export const getDomains = async (req: NextApiRequest, res: NextApiResponse<Domai
          const searchConsoleData = scData ? { ...scData, client_email: client_email ? 'true' : '', private_key: private_key ? 'true' : '' } : {};
          return { ...domainItem, search_console: JSON.stringify(searchConsoleData) };
       });
-      const theDomains: DomainType[] = withStats ? await getdomainStats(formattedDomains) : allDomains;
+      const theDomains: DomainType[] = withStats ? await getdomainStats(formattedDomains) : formattedDomains;
       return res.status(200).json({ domains: theDomains });
    } catch (error) {
+      console.log('[ERROR] Getting All Domains. ', error);
       return res.status(400).json({ domains: [], error: 'Error Getting Domains.' });
    }
 };
@@ -73,24 +74,31 @@ const addDomain = async (req: NextApiRequest, res: NextApiResponse<DomainsAddRes
    if (domains && Array.isArray(domains) && domains.length > 0) {
       const domainsToAdd: any = [];
 
-      domains.forEach((domain: string) => {
+      domains.forEach((domainInput: string) => {
+         const trimmedDomain = domainInput.trim().replace('www.', '').toLowerCase();
+         const cleanDomain = trimmedDomain.replace('https://', '').replace('http://', '').replace(/^\/+|\/+$/g, '');
+         
          domainsToAdd.push({
-            domain: domain.trim(),
-            slug: domain.trim().replaceAll('-', '_').replaceAll('.', '-').replaceAll('/', '-'),
+            domain: cleanDomain,
+            slug: cleanDomain.replaceAll('.', '-').replaceAll('/', '_'),
             lastUpdated: new Date().toJSON(),
             added: new Date().toJSON(),
          });
       });
+      
       try {
          const newDomains:Domain[] = await Domain.bulkCreate(domainsToAdd);
          const formattedDomains = newDomains.map((el) => el.get({ plain: true }));
          return res.status(201).json({ domains: formattedDomains });
-      } catch (error) {
+      } catch (error: any) {
          console.log('[ERROR] Adding New Domain ', error);
-         return res.status(400).json({ domains: [], error: 'Error Adding Domain.' });
+         const errorMessage = error?.name === 'SequelizeUniqueConstraintError' 
+            ? 'Domain Already Exists!' 
+            : 'Error Adding Domain.';
+         return res.status(400).json({ domains: null, error: errorMessage });
       }
    } else {
-      return res.status(400).json({ domains: [], error: 'Necessary data missing.' });
+      return res.status(400).json({ domains: null, error: 'Necessary data missing.' });
    }
 };
 
@@ -119,7 +127,6 @@ export const updateDomain = async (req: NextApiRequest, res: NextApiResponse<Dom
 
    try {
       const domainToUpdate: Domain|null = await Domain.findOne({ where: { domain } });
-      // Validate Search Console API Data
       if (domainToUpdate && search_console?.client_email && search_console?.private_key) {
          const theDomainObj = domainToUpdate.get({ plain: true });
          const isSearchConsoleAPIValid = await checkSerchConsoleIntegration({ ...theDomainObj, search_console: JSON.stringify(search_console) });
